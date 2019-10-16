@@ -3,13 +3,15 @@
 # Usage : ./passgen.py <basepassword>
 #
 
+
 import argparse
 import os
 import glob
 import yaml
 import hashlib
-
-
+import sys
+VERBOSE=True
+NO_PASSWORD_PROVIDED=2
 NO_TABLES_FOUND=1
 EXIT_SUCCESS=0
 DefaultScriptDir = os.path.dirname(os.path.realpath(__file__))
@@ -53,11 +55,19 @@ def loadTable(filename):
         mt = yaml.load(tableFile, Loader=yaml.SafeLoader)
     return mt
 
+def debug(message):
+    if VERBOSE:
+        print(message, file=sys.stderr)
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="""
+        passgen.py
+        Author : baalkor@gmail.com
+        Goal : Tools that generate all possible mutations against a string
+    """)
     group = parser.add_mutually_exclusive_group()
+
     group.add_argument("-p","--password", help="Base password where all mutations will be performed")
     group.add_argument("-l", "--list-mutation-tables", help="List mutation tables", action="store_true")
     parser.add_argument("--mutations-table-path", help="Path to file containing tables YAML", default=DefaultScriptDir)
@@ -70,30 +80,47 @@ if __name__ == "__main__":
             ./passgen.py -p 'abd' -m '__[a-z]____[0-9]' => ERROR don't know what to do"""
         )
     parser.add_argument("-t", "--mutation-table", help="Tables to use", default="simple.yml")
-    parser.add_argument("-o","--output", help="Output file",metavar="FILE")
-
+    parser.add_argument("-o","--output", help="Output file",metavar="FILE", type=argparse.FileType('w'), default=sys.stdout)
+    parser.add_argument("-v", "--verbose", help="Display more information on stderr", default=False,action="store_true")
     groupHash = parser.add_mutually_exclusive_group()
     groupHash.add_argument("-n", "--disable-build-hash", help="Disable hash computation", action="store_true", default=False)
     groupHash.add_argument("--hash-alg", help="Select hash mechanism, default=sha1-224", choices=['sha1', 'sha224'], default='sha1')
 
     args = parser.parse_args()
 
-    basePassword = "Superuser" #args.password
-    mask = args.mask
+
+    VERBOSE = args.verbose
+
+    debug("+Starting program")
+
 
     if args.list_mutation_tables:
-        exit(listTable(args.mutations_table_path))
+        debug("Looking for yml in %s " % args.mutations_table_path + os.sep)
+        listTable(args.mutations_table_path)
+        exit(EXIT_SUCCESS)
+    else:
+        basePassword = args.password
+        mask = args.mask
+        if basePassword is None:
+            debug("No password given")
+            exit(NO_PASSWORD_PROVIDED)
 
+        if len(basePassword) >= 10:
+            print("!Warning can take very long to compute")
+            input("Press <enter> to continue or abort with Ctrl-C!")
+
+    debug("Looking for yml in %s " % args.mutations_table_path + os.sep)
     symbols = loadTable(args.mutations_table_path + os.sep + args.mutation_table)
 
     symbol_list = [symbols[char] for char in basePassword.upper()]
     passwords = set(passgen(symbol_list))
 
+    debug("%d passwords generated" % len(passwords))
     if args.disable_build_hash:
         for proposal in passwords:
-            print("%s" % (proposal))
+            args.output.write("%s\n" % proposal)
     else:
         for proposal in passwords:
             h = hashlib.new(args.hash_alg)
             h.update(bytearray(proposal, encoding="utf-8"))
-            print("%s %s" % (h.hexdigest(), proposal))
+            args.output.write( "%s %s\n" % (h.hexdigest(), proposal) )
